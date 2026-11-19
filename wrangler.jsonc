@@ -9,5 +9,16 @@
       "/api/*"
     ],
     "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "stagebound-db",
+      "database_id": "df1454eb-ca8c-4ead-bd47-1576b7356e17"
+    }
+  ],
+  "vars": {
+    "ACCESS_AUD": "40ac733081ecd757abb19dc65e97a1be049afdb772fc800504e32b08c5b98082",
+    "ACCESS_TEAM_DOMAIN": "clearteck.cloudflareaccess.com"
   }
 }
