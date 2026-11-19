@@ -38,3 +38,8 @@ CREATE TABLE IF NOT EXISTS nutrition_days (owner TEXT NOT NULL,date TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS prep_plan (owner TEXT NOT NULL,id TEXT NOT NULL,title TEXT NOT NULL,start_date TEXT NOT NULL,end_date TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'Improvement',notes TEXT NOT NULL DEFAULT '',PRIMARY KEY(owner,id));
 CREATE INDEX IF NOT EXISTS idx_prep_plan_dates ON prep_plan(owner,start_date);
 CREATE TABLE IF NOT EXISTS nutrition_targets (owner TEXT PRIMARY KEY,calories INTEGER,protein REAL,carbs REAL,fat REAL,weekly_training_target INTEGER);
+
+-- Read-only Hevy Pro integration v4.
+CREATE TABLE IF NOT EXISTS hevy_connections (owner TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 1,last_synced_at TEXT,last_error TEXT,last_import_page INTEGER NOT NULL DEFAULT 1,history_complete INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS hevy_workouts (owner TEXT NOT NULL,hevy_id TEXT NOT NULL,start_time TEXT NOT NULL,updated_at TEXT,title TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(owner,hevy_id));
+CREATE INDEX IF NOT EXISTS idx_hevy_workouts_date ON hevy_workouts(owner,start_time DESC);
