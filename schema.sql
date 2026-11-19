@@ -21,3 +21,9 @@ CREATE TABLE IF NOT EXISTS preferences (
   owner TEXT PRIMARY KEY, goal TEXT NOT NULL DEFAULT 'Bodybuilding + Classic Physique',
   goal_weight TEXT NOT NULL DEFAULT ''
 );
+
+-- Physique records v2, deployed on 2026-11-19.
+CREATE TABLE IF NOT EXISTS measurements (owner TEXT NOT NULL,id TEXT NOT NULL,date TEXT NOT NULL,waist REAL,chest REAL,shoulders REAL,arm_left REAL,arm_right REAL,thigh_left REAL,thigh_right REAL,hips REAL,neck REAL,notes TEXT,PRIMARY KEY(owner,id));
+CREATE INDEX IF NOT EXISTS idx_measurements_owner_date ON measurements(owner,date DESC);
+CREATE TABLE IF NOT EXISTS progress_photos (owner TEXT NOT NULL,id TEXT NOT NULL,date TEXT NOT NULL,pose TEXT NOT NULL,object_key TEXT NOT NULL,content_type TEXT NOT NULL,bytes INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(owner,id));
+CREATE INDEX IF NOT EXISTS idx_photos_owner_date ON progress_photos(owner,date DESC);
