@@ -36,5 +36,7 @@
       "0 8 * * *",
       "17 */6 * * *"
     ]
-  }
+  },
+  "workers_dev": false,
+  "preview_urls": false
 }
