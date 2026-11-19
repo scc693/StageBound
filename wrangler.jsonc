@@ -25,6 +25,15 @@
     {
       "binding": "PHOTOS",
       "bucket_name": "stagebound-photos"
+    },
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "stagebound-backups"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "0 8 * * *"
+    ]
+  }
 }
