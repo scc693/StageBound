@@ -41,7 +41,7 @@ export default function HevyPanel({info,onRefresh}:{info:HevyData|null,onRefresh
  <button className="button secondary" disabled={busy} onClick={()=>{if(confirm('Pause automatic Hevy synchronization? Imported workouts will remain in Stagebound.'))act('/api/hevy/disconnect','Disconnecting…')}}><Unplug size={16}/> Disconnect</button>
  </>}
  </div>
- {!info?.configured&&<p className="muted tiny">To connect, first add a Cloudflare Worker secret named <code>HEVY_API_KEY</code> to the <code>stagebound</code> Worker. Never place the key in GitHub or chat. Refresh the page afterward.</p>}
+ {!info?.configured&&<p className="muted tiny">To connect, first add a Cloudflare Worker secret named <code>Hevy_API</code> (or <code>HEVY_API_KEY</code>) to the <code>stagebound</code> Worker. Never place the key in GitHub or chat. Refresh the page afterward.</p>}
  <p className="muted tiny">An initial sync imports up to 50 recent workouts. “Import older history” fetches the next five pages each time. Automatic recent syncs are scheduled every six hours at :17 UTC. Hevy does not supply live Apple Watch biometric data through this API. Deleted workouts are not automatically removed from this first version's historical cache.</p>
  </section>;
 }
