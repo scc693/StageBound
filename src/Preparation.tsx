@@ -1,3 +1,4 @@
+import HevyPanel, {loadHevy,type HevyData} from './HevyPanel';
 import {useEffect,useMemo,useState} from 'react';
 import {Activity,CalendarDays,Check,ChevronDown,Dumbbell,Flame,Plus,Target,Trash2,TrendingUp} from 'lucide-react';
 type S={id:string,date:string,focus:string,duration:number|null,recovery:number|null,effort:number|null,notes:string};
@@ -41,6 +42,8 @@ function MacroTrack({name,value,target}:{name:string,value:number|null,target:nu
  return <div className="macro-track"><div><strong>{name}</strong><span>{value==null?'—':round(value)}{target!=null?' / '+target:''} g</span></div><div className="macro-bar"><span style={{width:(percent===null?0:Math.min(100,percent))+'%'}}/></div></div>;
 }
 export default function Preparation({goToCheckin,goToPhysique}:{goToCheckin:()=>void,goToPhysique:()=>void}){
+ const [hevy,setHevy]=useState<HevyData|null>(null);
+ const reloadHevy=async()=>{setHevy(await loadHevy())};
  const [context,setContext]=useState<{weight:string,bf:string,checkinDate:string,photos:number,measureDate:string}>({weight:'',bf:'',checkinDate:'',photos:0,measureDate:''});
  const [data,setData]=useState<Data|null>(null),[tab,setTab]=useState<'training'|'nutrition'|'review'|'timeline'>('review'),[error,setError]=useState(''),[working,setWorking]=useState(false),[status,setStatus]=useState('');
  const [session,setSession]=useState<S>(blankS()),[showSession,setShowSession]=useState(false),[currentSession,setCurrentSession]=useState(''),[exercise,setExercise]=useState<E>(blankE('')),[showExercise,setShowExercise]=useState(false);
@@ -48,6 +51,7 @@ export default function Preparation({goToCheckin,goToPhysique}:{goToCheckin:()=>
  const reload=async()=>{const x=await call('GET','/api/prep');setData({sessions:x.sessions||[],sets:x.sets||[],days:x.days||[],phases:x.phases||[],targets:x.targets||zeroT});setTargets(x.targets||zeroT);setStatus('Saved securely in D1')};
  useEffect(()=>{
   reload().catch(e=>setError(String(e)));
+  reloadHevy().catch(()=>{});
   Promise.all([call('GET','/api/state'),call('GET','/api/photos'),call('GET','/api/measurements')]).then(([state,photos,measurements])=>{
     const latest=[...(state.checkins||[])].sort((a:any,b:any)=>b.date.localeCompare(a.date))[0];
     const measured=[...(measurements.measurements||[])].sort((a:any,b:any)=>b.date.localeCompare(a.date))[0];
@@ -64,15 +68,28 @@ export default function Preparation({goToCheckin,goToPhysique}:{goToCheckin:()=>
   try{await call('DELETE','/api/prep?kind='+kind+'&id='+encodeURIComponent(id));await reload()}catch(e){setError(String(e))}finally{setWorking(false)}
  };
  const sessions=data?.sessions||[],sets=data?.sets||[],days=data?.days||[],phases=data?.phases||[];
+ const hevySessions:S[]=(hevy?.workouts||[]).filter(w=>w.id&&w.start_time).map(w=>({
+   id:'hevy_'+w.id,date:w.start_time.slice(0,10),focus:w.title||'Hevy workout',
+   duration:w.end_time?Math.max(0,Math.round((Date.parse(w.end_time)-Date.parse(w.start_time))/60000)):null,
+   recovery:null,effort:null,notes:'Imported from Hevy'
+ }));
+ const hevySets:E[]=(hevy?.workouts||[]).flatMap(w=>(w.exercises||[]).flatMap((ex,idx)=>{
+   const working=(ex.sets||[]).filter(x=>x.type!=='warmup'&&Number.isFinite(x.reps)&&x.reps!=null&&x.reps>0);
+   if(!working.length)return [];
+   const top=[...working].sort((a,b)=>(b.weight_kg||0)-(a.weight_kg||0))[0];
+   return [{id:'hevy_'+w.id+'_'+idx,sessionId:'hevy_'+w.id,exercise:ex.title||ex.exercise_template_id||'Exercise',sets:working.length,reps:top.reps||0,load:round((top.weight_kg||0)*2.2046226218,1),rpe:top.rpe??null,notes:'Hevy working sets, top logged load'}];
+ }));
+ const allSessions=[...sessions,...hevySessions];
+ const allSets=[...sets,...hevySets];
  const week=monday(iso());
- const weekSessions=sessions.filter(s=>monday(s.date)===week),weekDays=days.filter(d=>monday(d.date)===week);
+ const weekSessions=allSessions.filter(s=>monday(s.date)===week),weekDays=days.filter(d=>monday(d.date)===week);
  const averages=useMemo(()=>{
   const avg=(key:'calories'|'protein'|'carbs'|'fat')=>{const xs=weekDays.map(x=>x[key]).filter((v):v is number=>v!=null);return xs.length?round(xs.reduce((a,b)=>a+b,0)/xs.length):null};
   return {calories:avg('calories'),protein:avg('protein'),carbs:avg('carbs'),fat:avg('fat')};
  },[days]);
- const totalSetCount=weekSessions.reduce((a,s)=>a+sets.filter(e=>e.sessionId===s.id).reduce((z,e)=>z+e.sets,0),0);
- const focusedExerciseNames=[...new Set(sets.map(e=>e.exercise))].sort();
- const progression=sets.filter(e=>e.exercise===selectedExercise).map(e=>({date:sessions.find(s=>s.id===e.sessionId)?.date||'',value:e.load,sets:e.sets,reps:e.reps})).filter(e=>e.date);
+ const totalSetCount=weekSessions.reduce((a,s)=>a+allSets.filter(e=>e.sessionId===s.id).reduce((z,e)=>z+e.sets,0),0);
+ const focusedExerciseNames=[...new Set(allSets.map(e=>e.exercise))].sort();
+ const progression=allSets.filter(e=>e.exercise===selectedExercise).map(e=>({date:allSessions.find(s=>s.id===e.sessionId)?.date||'',value:e.load,sets:e.sets,reps:e.reps})).filter(e=>e.date);
  const thisWeekAdherence=weekDays.map(d=>d.adherence).filter((x):x is number=>x!=null);
  const adherence=thisWeekAdherence.length?round(thisWeekAdherence.reduce((a,b)=>a+b,0)/thisWeekAdherence.length,1):null;
  const label=(n:number|null,suffix='')=>n==null?'—':round(n,1)+suffix;
@@ -94,11 +111,12 @@ export default function Preparation({goToCheckin,goToPhysique}:{goToCheckin:()=>
    <p className="muted tiny">Averages include only days with entries; missing days are not treated as zero. Set totals are based on logged sets, not automatically imported from a workout tracker.</p>
    <div className="prep-quick"><button className="button" onClick={()=>{setTab('training');setSession(blankS());setShowSession(true)}}><Plus size={16}/> Record session</button><button className="button secondary" onClick={()=>{setTab('nutrition');setDay(blankN())}}><Plus size={16}/> Log nutrition</button></div>
    </div>
-   <div className="prep-columns"><section className="panel"><div className="panelhead"><h2>Training this week</h2><Dumbbell size={19}/></div>{weekSessions.length?weekSessions.map(s=><div key={s.id} className="entry"><div><strong>{fmt(s.date)} · {s.focus||'Training'}</strong><span>{sets.filter(e=>e.sessionId===s.id).length} exercises · {s.duration??'—'} min</span></div></div>):<div className="empty compact">No logged workouts yet.</div>}</section><section className="panel"><div className="panelhead"><h2>Average macro intake</h2><Flame size={19}/></div><MacroTrack name="Protein" value={averages.protein} target={targets.protein}/><MacroTrack name="Carbs" value={averages.carbs} target={targets.carbs}/><MacroTrack name="Fat" value={averages.fat} target={targets.fat}/></section></div>
+   <div className="prep-columns"><section className="panel"><div className="panelhead"><h2>Training this week</h2><Dumbbell size={19}/></div>{weekSessions.length?weekSessions.map(s=><div key={s.id} className="entry"><div><strong>{fmt(s.date)} · {s.focus||'Training'}</strong><span>{allSets.filter(e=>e.sessionId===s.id).length} exercises · {s.duration??'—'} min</span></div></div>):<div className="empty compact">No logged workouts yet. Connect Hevy or add a manual session.</div>}</section><section className="panel"><div className="panelhead"><h2>Average macro intake</h2><Flame size={19}/></div><MacroTrack name="Protein" value={averages.protein} target={targets.protein}/><MacroTrack name="Carbs" value={averages.carbs} target={targets.carbs}/><MacroTrack name="Fat" value={averages.fat} target={targets.fat}/></section></div>
    <section className="panel"><div className="panelhead"><h2>Training load trend</h2><select aria-label="Select exercise" className="trend-select" value={selectedExercise} onChange={e=>setSelectedExercise(e.target.value)}><option value="">Choose exercise</option>{focusedExerciseNames.map(n=><option key={n} value={n}>{n}</option>)}</select></div>{selectedExercise?<Trend values={progression} unit="lb"/>:<div className="empty compact">Choose a logged exercise to compare load across sessions. Load alone doesn't measure total training volume.</div>}</section>
    <section className="panel"><div className="panelhead"><h2>Body composition & check-in</h2><Activity size={20}/></div><div className="prep-metrics"><div><small>LATEST CHECK-IN WEIGHT</small><strong>{context.weight?context.weight+" lb":"—"}</strong></div><div><small>BODY FAT ESTIMATE</small><strong>{context.bf?context.bf+"%":"—"}</strong></div><div><small>PROGRESS PHOTOS</small><strong>{context.photos}</strong></div></div><p className="muted tiny">Latest weekly check-in: {context.checkinDate?fmt(context.checkinDate):"Not recorded"} · Last body measurements: {context.measureDate?fmt(context.measureDate):"Not recorded"}. Training and nutrition are summarized above, while posing, cardio, and adjustments remain in your weekly check-in.</p><div className="prep-quick"><button className="button secondary" onClick={goToCheckin}>Open weekly check-in</button><button className="button secondary" onClick={goToPhysique}>Open physique tracking</button></div></section>
   </>}
   {data&&tab==='training'&&<>
+   <HevyPanel info={hevy} onRefresh={reloadHevy}/>
    <section className="panel"><div className="panelhead"><h2>Workout sessions</h2><button className="button" onClick={()=>{setSession(blankS());setShowSession(!showSession)}}><Plus size={16}/> Add session</button></div>
    {showSession&&<div className="prep-form"><div className="formgrid"><label>Date<input type="date" value={session.date} onChange={e=>setSession({...session,date:e.target.value})}/></label><label>Focus<input placeholder="Pull · Lower · Push …" value={session.focus} onChange={e=>setSession({...session,focus:e.target.value})}/></label><Num name="Duration (min)" value={session.duration} onChange={duration=>setSession({...session,duration})} max={600}/><Num name="Recovery (1 poor–5 good)" value={session.recovery} min={1} max={5} onChange={recovery=>setSession({...session,recovery})}/><Num name="Effort (1–10)" value={session.effort} min={1} max={10} onChange={effort=>setSession({...session,effort})}/><label className="wide">Notes<textarea value={session.notes} rows={3} onChange={e=>setSession({...session,notes:e.target.value})}/></label></div><div className="actions"><button className="button" disabled={working} onClick={()=>apply('session',session,()=>setShowSession(false))}>Save session</button><button className="button secondary" onClick={()=>setShowSession(false)}>Cancel</button></div></div>}
    {sessions.length?sessions.slice(0,60).map(s=><div key={s.id} className="prep-session"><div className="prep-session-heading"><button className="prep-expand" onClick={()=>{setCurrentSession(currentSession===s.id?'':s.id);setExercise(blankE(s.id));setShowExercise(false)}}><ChevronDown size={16}/><strong>{fmt(s.date)} · {s.focus||'Training'}</strong><span>{sets.filter(x=>x.sessionId===s.id).reduce((a,b)=>a+b.sets,0)} logged sets</span></button><button className="textbutton" onClick={()=>{setSession(s);setShowSession(true)}}>Edit</button><button aria-label="Delete session" className="iconbutton" onClick={()=>remove('session',s.id)}><Trash2 size={16}/></button></div>
@@ -107,7 +125,8 @@ export default function Preparation({goToCheckin,goToPhysique}:{goToCheckin:()=>
      {showExercise&&<div className="prep-form"><div className="formgrid"><label>Exercise<input placeholder="Neutral grip pulldown" value={exercise.exercise} onChange={e=>setExercise({...exercise,exercise:e.target.value})}/></label><Num name="Working sets" min={1} max={30} value={exercise.sets} onChange={sets=>setExercise({...exercise,sets:sets??1})}/><Num name="Reps / set" min={1} max={100} value={exercise.reps} onChange={reps=>setExercise({...exercise,reps:reps??1})}/><Num name="Load (lb)" max={2000} step={.5} value={exercise.load} onChange={load=>setExercise({...exercise,load:load??0})}/><Num name="RPE (optional)" min={1} max={10} step={.5} value={exercise.rpe} onChange={rpe=>setExercise({...exercise,rpe})}/><label>Notes<input value={exercise.notes} onChange={e=>setExercise({...exercise,notes:e.target.value})}/></label></div><div className="actions"><button className="button" disabled={working||!exercise.exercise.trim()} onClick={()=>apply('set',exercise,()=>setShowExercise(false))}>Save exercise</button><button className="button secondary" onClick={()=>setShowExercise(false)}>Cancel</button></div></div>}
     </div>}</div>):<div className="empty compact">No workouts tracked. Add a session to begin.</div>}
    </section>
-   <section className="panel"><div className="panelhead"><h2>Exercise progression</h2><select aria-label="Exercise to chart" className="trend-select" value={selectedExercise} onChange={e=>setSelectedExercise(e.target.value)}><option value="">Choose exercise</option>{focusedExerciseNames.map(n=><option key={n} value={n}>{n}</option>)}</select></div>{selectedExercise?<><Trend values={progression} unit="lb"/><p className="muted tiny">Compare sets and reps alongside load. A heavier weight with different repetitions is not necessarily a performance improvement.</p></>:<div className="empty compact">Log the same exercise across two training days to chart load.</div>}</section>
+   {hevy?.connected&&<section className="panel"><div className="panelhead"><h2>Imported Hevy workouts</h2><span className="muted tiny">Source: Hevy, read-only</span></div>{hevySessions.length?hevySessions.slice(0,35).map(x=><div key={x.id} className="entry"><div><strong>{fmt(x.date)} · {x.focus}</strong><span>{hevySets.filter(e=>e.sessionId===x.id).reduce((total,e)=>total+e.sets,0)} working sets · {x.duration??'—'} min</span></div></div>):<div className="empty compact">Connected. Select “Sync latest” above to import workouts.</div>}</section>}
+   <section className="panel"><div className="panelhead"><h2>Exercise progression</h2><select aria-label="Exercise to chart" className="trend-select" value={selectedExercise} onChange={e=>setSelectedExercise(e.target.value)}><option value="">Choose exercise</option>{focusedExerciseNames.map(n=><option key={n} value={n}>{n}</option>)}</select></div>{selectedExercise?<><Trend values={progression} unit="lb"/><p className="muted tiny">Compare sets and reps alongside load. A heavier weight with different repetitions is not necessarily a performance improvement.</p></>:<div className="empty compact">Log or import the same exercise across two training days to chart load.</div>}</section>
   </>}
   {data&&tab==='nutrition'&&<>
    <section className="panel"><div className="panelhead"><div><div className="eyebrow">EDITABLE TARGETS</div><h2>Nutrition goals</h2></div></div><div className="formgrid"><Num name="Calories / day" value={targets.calories} onChange={calories=>setTargets({...targets,calories})}/><Num name="Protein (g)" value={targets.protein} onChange={protein=>setTargets({...targets,protein})}/><Num name="Carbs (g)" value={targets.carbs} onChange={carbs=>setTargets({...targets,carbs})}/><Num name="Fat (g)" value={targets.fat} onChange={fat=>setTargets({...targets,fat})}/><Num name="Training days / week" min={0} max={14} value={targets.weeklyTrainingTarget} onChange={weeklyTrainingTarget=>setTargets({...targets,weeklyTrainingTarget})}/></div><div className="actions"><button className="button" disabled={working} onClick={()=>apply('targets',targets)}>Save targets</button></div><p className="muted tiny">Targets are manually set; Stagebound does not prescribe calorie intake or competition weight caps.</p></section>
