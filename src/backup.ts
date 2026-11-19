@@ -111,6 +111,7 @@ export async function verifySnapshot(env:BackupEnv,owner:string,relative:string)
 }
 function recordKey(table:Table,row:Row):string {
  if(table==='nutrition_days')return String(row.date);
+ if(table==='hevy_workouts')return String(row.hevy_id);
  return String(row.id??row.owner);
 }
 async function missingRecords(env:BackupEnv,owner:string,records:Records){
