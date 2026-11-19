@@ -1,34 +1,63 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {Activity,ArrowDownToLine,CalendarDays,Check,CheckCircle2,ChevronRight,ClipboardCheck,Dumbbell,Flag,Home,Menu,Plus,Scale,ShieldAlert,Target,Trash2,X} from 'lucide-react';
 type Checkin={id:string,date:string,weight:string,bf:string,training:string,nutrition:string,cardio:string,posing:string,notes:string};
 type Event={id:string,name:string,date:string,location:string,division:string,status:'Confirmed'|'Estimated'|'Unknown',url:string,notes:string};
 type Task={id:string,title:string,due:string,done:boolean};
 type Data={checkins:Checkin[],events:Event[],tasks:Task[],goalWeight:string,goal:string};
 const initial:Data={checkins:[],events:[],tasks:[{id:'a',title:'Shortlist target competitions',due:'',done:false},{id:'b',title:'Verify eligibility for Classic Physique',due:'',done:false},{id:'c',title:'Establish weekly posing practice',due:'',done:false}],goalWeight:'',goal:'Bodybuilding + Classic Physique'};
-const key='stagebound-v1';
 const today=()=>new Date().toLocaleDateString('en-CA');
 const id=()=>crypto.randomUUID();
-function read():Data {try{const s=localStorage.getItem(key);if(s){const x=JSON.parse(s);return {...initial,...x,checkins:Array.isArray(x.checkins)?x.checkins:[],events:Array.isArray(x.events)?x.events:[],tasks:Array.isArray(x.tasks)?x.tasks:[]};}}catch{}return initial;}
 const readable=(s:string)=>s?new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'Not set';
 function Button({children,onClick,secondary=false,disabled=false}:{children:React.ReactNode,onClick:()=>void,secondary?:boolean,disabled?:boolean}){return <button className={secondary?'button secondary':'button'} type="button" onClick={onClick} disabled={disabled}>{children}</button>;}
 export default function App(){
- const [data,setData]=useState<Data>(read);
+ const [data,setData]=useState<Data>(initial);
+ const [ready,setReady]=useState(false);
+ const [loadError,setLoadError]=useState('');
+ const [sync,setSync]=useState('Loading cloud data…');
+ const latestData=useRef<Data>(initial);
+ const queue=useRef<Promise<void>>(Promise.resolve());
  const [page,setPage]=useState('Overview');const [menu,setMenu]=useState(false);
  const [checkin,setCheckin]=useState<Checkin>({id:'',date:today(),weight:'',bf:'',training:'',nutrition:'',cardio:'',posing:'',notes:''});
  const [event,setEvent]=useState<Event>({id:'',name:'',date:'',location:'',division:'Both',status:'Unknown',url:'',notes:''});
  const [newTask,setNewTask]=useState('');const [newDue,setNewDue]=useState('');
  const [showEvent,setShowEvent]=useState(false);
- useEffect(()=>{localStorage.setItem(key,JSON.stringify(data))},[data]);
+ useEffect(()=>{
+   let active=true;
+   fetch('/api/state',{credentials:'same-origin',cache:'no-store'})
+     .then(async r=>{if(!r.ok)throw new Error('Server returned '+r.status);return r.json()})
+     .then(x=>{if(!active)return;const next:Data={
+       checkins:Array.isArray(x.checkins)?x.checkins:[],
+       events:Array.isArray(x.events)?x.events:[],
+       tasks:Array.isArray(x.tasks)?x.tasks:[],
+       goalWeight:typeof x.goalWeight==='string'?x.goalWeight:'',
+       goal:typeof x.goal==='string'?x.goal:initial.goal
+     };latestData.current=next;setData(next);setReady(true);setSync('Saved in Cloudflare D1');})
+     .catch(e=>{if(active){setLoadError(String(e));setSync('Unable to load data')}});
+   return ()=>{active=false};
+ },[]);
  const sorted=useMemo(()=>[...data.checkins].sort((a,b)=>b.date.localeCompare(a.date)),[data.checkins]);
  const latest=sorted[0];const previous=sorted[1];
  const complete=data.tasks.filter(t=>t.done).length;
  const upcoming=[...data.events].sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
- const update=(f:(d:Data)=>Data)=>setData(d=>f(d));
+ const update=(f:(d:Data)=>Data)=>{
+   if(!ready)return;
+   const next=f(latestData.current);
+   latestData.current=next;setData(next);setSync('Saving…');
+   queue.current=queue.current.catch(()=>{}).then(async()=>{
+     const result=await fetch('/api/state',{
+       method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify(next)
+     });
+     if(!result.ok)throw new Error('Save rejected: '+result.status);
+     setSync('Saved in Cloudflare D1');
+   }).catch(()=>setSync('Save failed — export backup and retry'));
+ };
  const saveCheckin=()=>{if(!checkin.date)return;update(d=>({...d,checkins:[...d.checkins.filter(c=>c.date!==checkin.date),{...checkin,id:checkin.id||id()}]}));setPage('Overview');};
  const saveEvent=()=>{if(!event.name.trim())return;update(d=>({...d,events:[...d.events.filter(e=>e.id!==event.id),{...event,id:event.id||id()}]}));setEvent({id:'',name:'',date:'',location:'',division:'Both',status:'Unknown',url:'',notes:''});setShowEvent(false);};
  const exportData=()=>{const a=document.createElement('a');const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});a.href=URL.createObjectURL(blob);a.download='stagebound-backup-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);};
  const nav=[{name:'Overview',icon:Home},{name:'Check-in',icon:Activity},{name:'Competitions',icon:Flag},{name:'Tasks',icon:ClipboardCheck},{name:'Settings',icon:Target}];
  const go=(x:string)=>{setPage(x);setMenu(false)};
+ if(!ready)return <div style={{minHeight:'100vh',display:'grid',placeItems:'center',padding:24,background:'#101522',color:'#edf2fa',fontFamily:'system-ui'}}><div><h1>Stagebound</h1><p>{loadError?'Unable to load your saved data: '+loadError:'Connecting to your private database…'}</p>{loadError&&<button className="button" onClick={()=>location.reload()}>Retry connection</button>}</div></div>;
  return <div className="app">
  <aside className={'sidebar '+(menu?'open':'')}>
   <div className="brand"><div className="brandmark">S<span>⬆</span></div><div><strong>STAGEBOUND</strong><small>THE LONG GAME</small></div><button className="closemenu" onClick={()=>setMenu(false)} aria-label="Close menu"><X size={20}/></button></div>
@@ -36,7 +65,7 @@ export default function App(){
   <nav>{nav.map(n=><button key={n.name} className={'navlink '+(page===n.name?'selected':'')} onClick={()=>go(n.name)}><n.icon size={18}/>{n.name}{page===n.name&&<ChevronRight size={16} className="tail"/>}</button>)}</nav>
   <div className="sidebar-bottom"><div className="tiny-label">TARGET WINDOW</div><strong>Sep 2028 – May 2029</strong><p>South Florida · Keys · Treasure Coast</p><div className="privacy"><ShieldAlert size={15}/> Browser-only data, not cloud-synced</div></div>
  </aside>
- <div className="workspace"><header className="topbar"><button className="menubutton" onClick={()=>setMenu(true)} aria-label="Open menu"><Menu size={21}/></button><div className="breadcrumbs">STAGEBOUND <span>/</span> {page.toUpperCase()}</div><div className="topright"><span className="status-dot"/> DEVELOPMENT BUILD</div></header>
+ <div className="workspace"><header className="topbar"><button className="menubutton" onClick={()=>setMenu(true)} aria-label="Open menu"><Menu size={21}/></button><div className="breadcrumbs">STAGEBOUND <span>/</span> {page.toUpperCase()}</div><div className="topright"><span className="status-dot"/> {sync.toUpperCase()}</div></header>
  <main>
  {page==='Overview'&&<><div className="pagehead"><div><div className="eyebrow">YOUR ROAD TO THE STAGE</div><h1>Preparation overview<span className="punct">.</span></h1><p className="muted">One week at a time. Track what matters and keep moving.</p></div><Button onClick={()=>go('Check-in')}><Plus size={17}/> Weekly check-in</Button></div>
  <div className="stats">
@@ -58,6 +87,6 @@ export default function App(){
  {showEvent&&<section className="panel formpanel"><h2>{event.id?'Edit':'New'} competition</h2><div className="formgrid"><label>Show name<input value={event.name} onChange={e=>setEvent({...event,name:e.target.value})}/></label><label>Event date<input type="date" value={event.date} onChange={e=>setEvent({...event,date:e.target.value})}/></label><label>City / venue<input value={event.location} onChange={e=>setEvent({...event,location:e.target.value})}/></label><label>Division<select value={event.division} onChange={e=>setEvent({...event,division:e.target.value})}><option>Both</option><option>Bodybuilding</option><option>Classic Physique</option><option>Unknown</option></select></label><label>Information status<select value={event.status} onChange={e=>setEvent({...event,status:e.target.value as Event['status']})}><option>Unknown</option><option>Estimated</option><option>Confirmed</option></select></label><label>Official source URL<input type="url" placeholder="https://" value={event.url} onChange={e=>setEvent({...event,url:e.target.value})}/></label><label className="wide">Notes<textarea rows={3} value={event.notes} onChange={e=>setEvent({...event,notes:e.target.value})}/></label></div><div className="actions"><Button onClick={saveEvent} disabled={!event.name.trim()}>Save competition</Button><Button secondary onClick={()=>{setShowEvent(false);setEvent({id:'',name:'',date:'',location:'',division:'Both',status:'Unknown',url:'',notes:''})}}>Cancel</Button></div></section>}
  <section className="panel"><div className="panelhead"><h2>Show comparison</h2><span className="muted tiny">{data.events.length} tracked</span></div>{upcoming.length?<div className="tablewrap"><table><thead><tr><th>Competition</th><th>Date</th><th>Division</th><th>Status</th><th></th></tr></thead><tbody>{upcoming.map(e=><tr key={e.id}><td><strong>{e.name}</strong><small>{e.location||'Venue unknown'}</small>{e.url&&<a href={e.url} target="_blank" rel="noreferrer">Official source ↗</a>}</td><td>{readable(e.date)}</td><td>{e.division}</td><td><span className={'pill '+e.status.toLowerCase()}>{e.status}</span></td><td><button className="textbutton" onClick={()=>{setEvent(e);setShowEvent(true);window.scrollTo(0,0)}}>Edit</button> <button className="iconbutton" aria-label="Delete competition" onClick={()=>{if(confirm('Remove this competition?'))update(d=>({...d,events:d.events.filter(x=>x.id!==e.id)}))}}><Trash2 size={15}/></button></td></tr>)}</tbody></table></div>:<div className="empty"><CalendarDays size={30}/><strong>No shows added</strong><p>Track a candidate without inventing a confirmed date or venue.</p></div>}</section></>}
  {page==='Tasks'&&<><div className="pagehead"><div><div className="eyebrow">CONTROL WHAT YOU CAN</div><h1>Prep checklist<span className="punct">.</span></h1><p className="muted">{complete} of {data.tasks.length} tasks complete.</p></div></div><section className="panel formpanel"><div className="addtask"><input aria-label="New task" placeholder="Add a preparation task..." value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&newTask.trim()){update(d=>({...d,tasks:[...d.tasks,{id:id(),title:newTask.trim(),due:newDue,done:false}]}));setNewTask('');setNewDue('')}}}/><input aria-label="Due date" type="date" value={newDue} onChange={e=>setNewDue(e.target.value)}/><Button disabled={!newTask.trim()} onClick={()=>{update(d=>({...d,tasks:[...d.tasks,{id:id(),title:newTask.trim(),due:newDue,done:false}]}));setNewTask('');setNewDue('')}}><Plus size={16}/> Add</Button></div></section><section className="panel"><div className="panelhead"><h2>All tasks</h2></div><div className="tasks-list">{[...data.tasks].sort((a,b)=>Number(a.done)-Number(b.done)).map(t=><div className="taskline" key={t.id}><label><input type="checkbox" checked={t.done} onChange={()=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x)}))}/><span className={t.done?'done':''}>{t.title}</span></label>{t.due&&<small>{readable(t.due)}</small>}<button className="iconbutton" aria-label="Remove task" onClick={()=>update(d=>({...d,tasks:d.tasks.filter(x=>x.id!==t.id)}))}><Trash2 size={16}/></button></div>)}</div></section></>}
- {page==='Settings'&&<><div className="pagehead"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>Settings<span className="punct">.</span></h1></div></div><section className="panel formpanel"><h2>Preparation goals</h2><div className="formgrid"><label>Divisions<input value={data.goal} onChange={e=>update(d=>({...d,goal:e.target.value}))}/></label><label>Goal body weight (lb, optional)<input type="number" min="0" value={data.goalWeight} onChange={e=>update(d=>({...d,goalWeight:e.target.value}))}/></label></div><div className="panelnote"><Target size={18}/> Target show window: September 2028 through May 2029. Weight class limits must be confirmed against current federation rules.</div></section><section className="panel formpanel"><h2>Data portability</h2><p className="muted">This version saves entries only in this browser. Clearing site data, using another device, or switching browsers can remove them. There is no login or cloud synchronization yet.</p><div className="actions"><Button onClick={exportData}><ArrowDownToLine size={17}/> Export JSON backup</Button></div></section></>}
- </main><footer>STAGEBOUND · FOUNDATION BUILD <span>Private browser storage · No medical or competition eligibility claims</span></footer></div></div>
+ {page==='Settings'&&<><div className="pagehead"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>Settings<span className="punct">.</span></h1></div></div><section className="panel formpanel"><h2>Preparation goals</h2><div className="formgrid"><label>Divisions<input value={data.goal} onChange={e=>update(d=>({...d,goal:e.target.value}))}/></label><label>Goal body weight (lb, optional)<input type="number" min="0" value={data.goalWeight} onChange={e=>update(d=>({...d,goalWeight:e.target.value}))}/></label></div><div className="panelnote"><Target size={18}/> Target show window: September 2028 through May 2029. Weight class limits must be confirmed against current federation rules.</div></section><section className="panel formpanel"><h2>Data portability</h2><p className="muted">Records are saved to Cloudflare D1 under your verified Cloudflare Access login email. Use the same email to see your data on another device. If a save fails, export a backup before leaving the page.</p><div className="actions"><Button onClick={exportData}><ArrowDownToLine size={17}/> Export JSON backup</Button></div></section></>}
+ </main><footer>STAGEBOUND · FOUNDATION BUILD <span>Private Cloudflare D1 storage · No medical or competition eligibility claims</span></footer></div></div>
 }
