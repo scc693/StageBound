@@ -44,7 +44,7 @@ async function getState(db: D1Database, owner: string) {
   return {
     checkins: checkins.results,
     events: events.results,
-    tasks: tasks.results.map(t => ({ ...t, done: Boolean(t.done) })),
+    tasks: (tasks.results as Row[]).map(t => ({ ...t, done: Boolean(t.done) })),
     goal: p?.goal ?? defaultGoal,
     goalWeight: p?.goalWeight ?? ''
   };
