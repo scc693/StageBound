@@ -25,7 +25,7 @@ export default function App(){
    let active=true;
    fetch('/api/state',{credentials:'same-origin',cache:'no-store'})
      .then(async r=>{if(!r.ok)throw new Error('Server returned '+r.status);return r.json()})
-     .then(x=>{if(!active)return;const next:Data={
+     .then((x: any)=>{if(!active)return;const next:Data={
        checkins:Array.isArray(x.checkins)?x.checkins:[],
        events:Array.isArray(x.events)?x.events:[],
        tasks:Array.isArray(x.tasks)?x.tasks:[],
