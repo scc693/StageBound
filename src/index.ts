@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   DB: D1Database;
+  PHOTOS?: R2Bucket;
   ACCESS_AUD: string;
   ACCESS_TEAM_DOMAIN: string;
 }
@@ -97,6 +98,95 @@ export default {
     if (!env.DB || !env.ACCESS_AUD || !env.ACCESS_TEAM_DOMAIN) return json({error:'Server configuration incomplete'},503);
     const owner = await identity(request,env);
     if (!owner) return json({error:'Unauthenticated'},401);
+    // Independently versioned physique records: existing /api/state saves never overwrite measurements.
+    if (url.pathname === '/api/measurements') {
+      if (request.method === 'GET') {
+        try {
+          const rows = await env.DB.prepare('SELECT id,date,waist,chest,shoulders,arm_left AS armLeft,arm_right AS armRight,thigh_left AS thighLeft,thigh_right AS thighRight,hips,neck,notes FROM measurements WHERE owner=? ORDER BY date DESC').bind(owner).all();
+          return json({ measurements: rows.results });
+        } catch { return json({error:'Could not load measurements'},500); }
+      }
+      if (request.method === 'POST') {
+        let m: Record<string,unknown>;
+        try { m = await request.json() as Record<string,unknown>; } catch { return json({error:'Invalid JSON'},400); }
+        const rowId=max(m.id,100), date=max(m.date,10);
+        if (!rowId || !date || !validDate(date)) return json({error:'Invalid measurement id or date'},400);
+        const fields=['waist','chest','shoulders','armLeft','armRight','thighLeft','thighRight','hips','neck'] as const;
+        const values:(number|null)[]=[];
+        for(const field of fields) {
+          const v=m[field];
+          if(v===null || v==='' || v===undefined){values.push(null);continue;}
+          const n=Number(v);
+          if(!Number.isFinite(n)||n<=0||n>500) return json({error:'Measurement out of range: '+field},400);
+          values.push(n);
+        }
+        try {
+          await env.DB.prepare('INSERT INTO measurements(owner,id,date,waist,chest,shoulders,arm_left,arm_right,thigh_left,thigh_right,hips,neck,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(owner,id) DO UPDATE SET date=excluded.date,waist=excluded.waist,chest=excluded.chest,shoulders=excluded.shoulders,arm_left=excluded.arm_left,arm_right=excluded.arm_right,thigh_left=excluded.thigh_left,thigh_right=excluded.thigh_right,hips=excluded.hips,neck=excluded.neck,notes=excluded.notes')
+          .bind(owner,rowId,date,...values,max(m.notes,2000)).run();
+          return json({ok:true});
+        } catch {return json({error:'Could not save measurement'},500);}
+      }
+      return json({error:'Method not allowed'},405);
+    }
+    if(url.pathname.startsWith('/api/measurements/') && request.method==='DELETE'){
+      const rowId=decodeURIComponent(url.pathname.slice('/api/measurements/'.length));
+      if(!rowId || rowId.length>100)return json({error:'Invalid id'},400);
+      await env.DB.prepare('DELETE FROM measurements WHERE owner=? AND id=?').bind(owner,rowId).run();
+      return json({ok:true});
+    }
+    // R2 remains private. These endpoints return 503 until the user enables the R2 service.
+    if(url.pathname==='/api/photos' && request.method==='GET'){
+      if(!env.PHOTOS)return json({photos:[],storageEnabled:false});
+      const rows=await env.DB.prepare('SELECT id,date,pose,content_type AS contentType,bytes FROM progress_photos WHERE owner=? ORDER BY date DESC').bind(owner).all();
+      return json({photos:rows.results,storageEnabled:true});
+    }
+    if(url.pathname==='/api/photos' && request.method==='POST'){
+      if(!env.PHOTOS)return json({error:'Private R2 photo storage is not enabled'},503);
+      const len=Number(request.headers.get('content-length')||0);
+      if(len>12*1024*1024)return json({error:'Image exceeds 12 MB request limit'},413);
+      const type=(request.headers.get('content-type')||'').split(';')[0].toLowerCase();
+      if(!['image/jpeg','image/png','image/webp'].includes(type))return json({error:'Upload a JPEG, PNG or WebP image'},415);
+      const date=url.searchParams.get('date')||'';
+      const pose=url.searchParams.get('pose')||'';
+      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !['front','side','back','other'].includes(pose))return json({error:'Valid photo date and pose required'},400);
+      const bytes=await request.arrayBuffer();
+      if(bytes.byteLength===0 || bytes.byteLength>10*1024*1024)return json({error:'File must be 10 MB or smaller'},413);
+      const magic=new Uint8Array(bytes.slice(0,12));
+      const jpeg=magic[0]===255&&magic[1]===216&&magic[2]===255;
+      const png=magic[0]===137&&magic[1]===80&&magic[2]===78&&magic[3]===71;
+      const webp=String.fromCharCode(...magic.slice(0,4))==='RIFF'&&String.fromCharCode(...magic.slice(8,12))==='WEBP';
+      if(!((type==='image/jpeg'&&jpeg)||(type==='image/png'&&png)||(type==='image/webp'&&webp)))return json({error:'Image format does not match file contents'},415);
+      const ownerHash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(owner)))).map(x=>x.toString(16).padStart(2,'0')).join('');
+      const photoId=crypto.randomUUID();
+      const ext=type==='image/jpeg'?'jpg':type==='image/png'?'png':'webp';
+      const objectKey=ownerHash+'/'+photoId+'.'+ext;
+      try{
+        await env.PHOTOS.put(objectKey,bytes,{httpMetadata:{contentType:type}});
+        await env.DB.prepare('INSERT INTO progress_photos(owner,id,date,pose,object_key,content_type,bytes) VALUES(?,?,?,?,?,?,?)').bind(owner,photoId,date,pose,objectKey,type,bytes.byteLength).run();
+        return json({id:photoId,ok:true},201);
+      }catch{
+        await env.PHOTOS.delete(objectKey).catch(()=>{});
+        return json({error:'Unable to store photo'},500);
+      }
+    }
+    if(url.pathname.startsWith('/api/photos/')){
+      if(!env.PHOTOS)return json({error:'Photo storage is not enabled'},503);
+      const photoId=url.pathname.slice('/api/photos/'.length);
+      if(!/^[0-9a-f-]{36}$/i.test(photoId))return json({error:'Invalid photo id'},400);
+      const photo=await env.DB.prepare('SELECT object_key AS objectKey,content_type AS contentType FROM progress_photos WHERE owner=? AND id=?').bind(owner,photoId).first<{objectKey:string,contentType:string}>();
+      if(!photo)return json({error:'Photo not found'},404);
+      if(request.method==='GET'){
+        const object=await env.PHOTOS.get(photo.objectKey);
+        if(!object)return json({error:'Photo not found'},404);
+        return new Response(object.body,{headers:{'Content-Type':photo.contentType,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});
+      }
+      if(request.method==='DELETE'){
+        await env.PHOTOS.delete(photo.objectKey);
+        await env.DB.prepare('DELETE FROM progress_photos WHERE owner=? AND id=?').bind(owner,photoId).run();
+        return json({ok:true});
+      }
+      return json({error:'Method not allowed'},405);
+    }
     if (url.pathname === '/api/health' && request.method === 'GET') return json({status:'ok',database:'configured'});
     if (url.pathname === '/api/state') {
       if (request.method === 'GET') {
