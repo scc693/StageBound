@@ -58,7 +58,7 @@ export default function BackupPanel(){
   }
   const file=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:3}});
   const link=document.createElement('a'),url=URL.createObjectURL(file);
-  link.href=url;link.download='stagebound-complete-'+new Date().toISOString().slice(0,10)+'.zip';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  link.href=url;link.download='stagebound-complete-'+new Date().toISOString().slice(0,10)+'.zip';document.documentElement.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
   setStatus('Complete ZIP downloaded: records and '+photos.length+' original photos');
  });
  return <section className="panel formpanel backup-panel">
