@@ -1,9 +1,11 @@
+import { backupRoutes, preservePhoto, scheduledBackup } from './backup';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   DB: D1Database;
-  PHOTOS?: R2Bucket;
+  PHOTOS: R2Bucket;
+  BACKUPS: R2Bucket;
   ACCESS_AUD: string;
   ACCESS_TEAM_DOMAIN: string;
 }
@@ -162,6 +164,7 @@ export default {
       const objectKey=ownerHash+'/'+photoId+'.'+ext;
       try{
         await env.PHOTOS.put(objectKey,bytes,{httpMetadata:{contentType:type}});
+        await preservePhoto(env,owner,{id:photoId,date,pose,object_key:objectKey,content_type:type,bytes:bytes.byteLength});
         await env.DB.prepare('INSERT INTO progress_photos(owner,id,date,pose,object_key,content_type,bytes) VALUES(?,?,?,?,?,?,?)').bind(owner,photoId,date,pose,objectKey,type,bytes.byteLength).run();
         return json({id:photoId,ok:true},201);
       }catch{
@@ -181,11 +184,19 @@ export default {
         return new Response(object.body,{headers:{'Content-Type':photo.contentType,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});
       }
       if(request.method==='DELETE'){
+        const photoMetadata=await env.DB.prepare('SELECT id,date,pose,object_key,content_type,bytes FROM progress_photos WHERE owner=? AND id=?').bind(owner,photoId).first<Record<string,string|number|null>>();
+        if(!photoMetadata)return json({error:'Photo not found'},404);
+        try{await preservePhoto(env,owner,photoMetadata);}catch{return json({error:'Photo backup failed; deletion blocked to protect your data'},503);}
         await env.PHOTOS.delete(photo.objectKey);
         await env.DB.prepare('DELETE FROM progress_photos WHERE owner=? AND id=?').bind(owner,photoId).run();
         return json({ok:true});
       }
       return json({error:'Method not allowed'},405);
+    }
+    if(url.pathname.startsWith('/api/backups')){
+      if(!env.BACKUPS)return json({error:'Backup storage is not configured'},503);
+      const reply=await backupRoutes(request,env,owner);
+      if(reply)return reply;
     }
     if (url.pathname === '/api/health' && request.method === 'GET') return json({status:'ok',database:'configured'});
     if (url.pathname === '/api/state') {
@@ -197,5 +208,9 @@ export default {
       return json({error:'Method not allowed'},405);
     }
     return json({error:'Not found'},404);
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if(!env.DB||!env.PHOTOS||!env.BACKUPS)throw Error('Backup services are not configured');
+    ctx.waitUntil(scheduledBackup(env));
   }
 };
