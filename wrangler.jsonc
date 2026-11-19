@@ -20,5 +20,11 @@
   "vars": {
     "ACCESS_AUD": "40ac733081ecd757abb19dc65e97a1be049afdb772fc800504e32b08c5b98082",
     "ACCESS_TEAM_DOMAIN": "clearteck.cloudflareaccess.com"
-  }
+  },
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "stagebound-photos"
+    }
+  ]
 }
