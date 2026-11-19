@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "test:analytics": "node --experimental-strip-types --test tests/training-analytics.test.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
