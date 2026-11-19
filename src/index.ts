@@ -1,3 +1,4 @@
+import {muscleRoutes} from './muscles';
 import {hevyRoutes,scheduledHevySync} from './hevy';
 import { prepRoutes } from './prep';
 import { backupRoutes, preservePhoto, scheduledBackup } from './backup';
@@ -196,6 +197,10 @@ export default {
         return json({ok:true});
       }
       return json({error:'Method not allowed'},405);
+    }
+    if(url.pathname==='/api/muscles'){
+      const result=await muscleRoutes(request,env,owner);
+      if(result)return result;
     }
     if(url.pathname.startsWith('/api/hevy')){
       const reply=await hevyRoutes(request,env,owner);
