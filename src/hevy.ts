@@ -1,5 +1,6 @@
 /** Read-only Hevy Pro integration. The API key is a Worker secret, never returned to the browser. */
-export interface HevyEnv { DB:D1Database; HEVY_API_KEY?:string; }
+export interface HevyEnv { DB:D1Database; HEVY_API_KEY?:string; Hevy_API?:string; }
+const getKey=(env:HevyEnv)=>env.HEVY_API_KEY||env.Hevy_API;
 const out=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 type HevyWorkout={id:string,title?:string,start_time?:string,updated_at?:string,end_time?:string,exercises?:unknown[]};
 type Page={page?:number,page_count?:number,workouts?:HevyWorkout[]};
@@ -19,14 +20,14 @@ async function fetchPage(key:string,page:number):Promise<Page>{
 }
 const getConnection=async(db:D1Database,owner:string)=>db.prepare('SELECT * FROM hevy_connections WHERE owner=?').bind(owner).first<Connection>();
 export async function syncHevy(env:HevyEnv,owner:string,history=false){
- if(!env.HEVY_API_KEY)throw Error('Hevy secret not configured in Cloudflare');
+ if(!getKey(env))throw Error('Hevy secret not configured in Cloudflare');
  const previous=await getConnection(env.DB,owner);
  if(!previous?.enabled)throw Error('Hevy not connected for this Stagebound login');
  const start=history?Math.max(previous.last_import_page||1,1):1;
  let imported=0,pages=0,foundEnd=false;
  try{
   for(let page=start;page<start+5;page++){
-   const data=await fetchPage(env.HEVY_API_KEY,page);
+   const data=await fetchPage(getKey(env)!,page);
    if(!Number.isInteger(data.page_count)||data.page_count!<0||data.page_count!>10000)throw Error('Invalid Hevy page count');
    if(page>data.page_count!||data.workouts?.length===0){foundEnd=true;break;}
    const workouts=data.workouts||[];
@@ -51,7 +52,7 @@ export async function syncHevy(env:HevyEnv,owner:string,history=false){
  }
 }
 export async function scheduledHevySync(env:HevyEnv):Promise<number>{
- if(!env.HEVY_API_KEY)return 0;
+ if(!getKey(env))return 0;
  const conn=await env.DB.prepare('SELECT owner FROM hevy_connections WHERE enabled=1').all<{owner:string}>();
  let successes=0;
  for(const c of conn.results){
@@ -67,12 +68,12 @@ export async function hevyRoutes(request:Request,env:HevyEnv,owner:string):Promi
   const conn=await getConnection(env.DB,owner);
   if(url.pathname==='/api/hevy'&&request.method==='GET'){
    const rows=await env.DB.prepare('SELECT hevy_id AS id,start_time AS startTime,title,json FROM hevy_workouts WHERE owner=? ORDER BY start_time DESC LIMIT 1000').bind(owner).all<{id:string,startTime:string,title:string,json:string}>();
-   return out({configured:!!env.HEVY_API_KEY,connected:!!conn?.enabled,lastSynced:conn?.last_synced_at||null,lastError:conn?.last_error||null,historyComplete:!!conn?.history_complete,nextHistoryPage:conn?.last_import_page||1,workouts:rows.results.map(r=>{try{return JSON.parse(r.json)}catch{return null}}).filter(Boolean)});
+   return out({configured:!!getKey(env),connected:!!conn?.enabled,lastSynced:conn?.last_synced_at||null,lastError:conn?.last_error||null,historyComplete:!!conn?.history_complete,nextHistoryPage:conn?.last_import_page||1,workouts:rows.results.map(r=>{try{return JSON.parse(r.json)}catch{return null}}).filter(Boolean)});
   }
   if(url.pathname==='/api/hevy/connect'&&request.method==='POST'){
-   if(!env.HEVY_API_KEY)return out({error:'Set HEVY_API_KEY in the Stagebound Worker secret settings first'},503);
+   if(!getKey(env))return out({error:'Set HEVY_API_KEY in the Stagebound Worker secret settings first'},503);
    // Verify the secret before associating an identity.
-   await fetchPage(env.HEVY_API_KEY,1);
+   await fetchPage(getKey(env)!,1);
    await env.DB.prepare('INSERT INTO hevy_connections(owner,enabled,last_import_page,history_complete) VALUES(?,1,1,0) ON CONFLICT(owner) DO UPDATE SET enabled=1').bind(owner).run();
    return out({connected:true});
   }
