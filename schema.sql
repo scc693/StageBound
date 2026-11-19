@@ -43,3 +43,7 @@ CREATE TABLE IF NOT EXISTS nutrition_targets (owner TEXT PRIMARY KEY,calories IN
 CREATE TABLE IF NOT EXISTS hevy_connections (owner TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 1,last_synced_at TEXT,last_error TEXT,last_import_page INTEGER NOT NULL DEFAULT 1,history_complete INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS hevy_workouts (owner TEXT NOT NULL,hevy_id TEXT NOT NULL,start_time TEXT NOT NULL,updated_at TEXT,title TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(owner,hevy_id));
 CREATE INDEX IF NOT EXISTS idx_hevy_workouts_date ON hevy_workouts(owner,start_time DESC);
+
+-- Muscle-group assignment v5: user-confirmed primary muscle classifications.
+CREATE TABLE IF NOT EXISTS exercise_muscle_map (owner TEXT NOT NULL,exercise_key TEXT NOT NULL,exercise_name TEXT NOT NULL,primary_muscle TEXT NOT NULL,secondary_muscle TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(owner,exercise_key));
+CREATE INDEX IF NOT EXISTS idx_exercise_muscle_owner ON exercise_muscle_map(owner,primary_muscle);
