@@ -89,7 +89,9 @@ async function loadSnapshot(env:BackupEnv,owner:string,relative:string){
  const actual=await sha(content);
  if(!expected||actual!==expected)throw Error('Snapshot integrity check failed');
  const snapshot=JSON.parse(content) as Snapshot;
- if(snapshot.version!==1||snapshot.owner!==owner||!snapshot.records||tables.some(t=>!Array.isArray(snapshot.records[t])))throw Error('Snapshot schema invalid');
+ if(snapshot.version!==1||snapshot.owner!==owner||!snapshot.records)throw Error('Snapshot schema invalid');
+ // Historical v1 snapshots predate training and nutrition tables; they remain valid.
+ for(const t of tables){if(snapshot.records[t]===undefined)(snapshot.records as unknown as Record<string,Row[]>)[t]=[];else if(!Array.isArray(snapshot.records[t]))throw Error('Snapshot schema invalid: '+t)}
  return {snapshot,sha256:actual};
 }
 export async function backupStatus(env:BackupEnv,owner:string){
@@ -107,11 +109,15 @@ export async function verifySnapshot(env:BackupEnv,owner:string,relative:string)
  }
  return {ok:missing.length===0,sha256,createdAt:snapshot.createdAt,counts:Object.fromEntries(tables.map(t=>[t,snapshot.records[t].length])),missingPhotos:missing};
 }
+function recordKey(table:Table,row:Row):string {
+ if(table==='nutrition_days')return String(row.date);
+ return String(row.id??row.owner);
+}
 async function missingRecords(env:BackupEnv,owner:string,records:Records){
  const current=await recordsForOwner(env.DB,owner);
  return Object.fromEntries(tables.map(t=>{
-  const ids=new Set(current[t].map(x=>String(x.id??x.owner)));
-  return [t,records[t].filter(x=>!ids.has(String(x.id??x.owner))).length];
+  const ids=new Set(current[t].map(x=>recordKey(t,x)));
+  return [t,records[t].filter(x=>!ids.has(recordKey(t,x))).length];
  }));
 }
 export async function restoreMissing(env:BackupEnv,owner:string,relative:string,apply:boolean){
