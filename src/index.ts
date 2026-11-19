@@ -148,7 +148,7 @@ export default {
       if(!['image/jpeg','image/png','image/webp'].includes(type))return json({error:'Upload a JPEG, PNG or WebP image'},415);
       const date=url.searchParams.get('date')||'';
       const pose=url.searchParams.get('pose')||'';
-      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !['front','side','back','other'].includes(pose))return json({error:'Valid photo date and pose required'},400);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || !['front','side','back','other'].includes(pose))return json({error:'Valid photo date and pose required'},400);
       const bytes=await request.arrayBuffer();
       if(bytes.byteLength===0 || bytes.byteLength>10*1024*1024)return json({error:'File must be 10 MB or smaller'},413);
       const magic=new Uint8Array(bytes.slice(0,12));
