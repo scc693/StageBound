@@ -40,12 +40,20 @@ function MacroTrack({name,value,target}:{name:string,value:number|null,target:nu
  const percent=target&&value!=null?Math.round(100*value/target):null;
  return <div className="macro-track"><div><strong>{name}</strong><span>{value==null?'—':round(value)}{target!=null?' / '+target:''} g</span></div><div className="macro-bar"><span style={{width:(percent===null?0:Math.min(100,percent))+'%'}}/></div></div>;
 }
-export default function Preparation(){
+export default function Preparation({goToCheckin,goToPhysique}:{goToCheckin:()=>void,goToPhysique:()=>void}){
+ const [context,setContext]=useState<{weight:string,bf:string,checkinDate:string,photos:number,measureDate:string}>({weight:'',bf:'',checkinDate:'',photos:0,measureDate:''});
  const [data,setData]=useState<Data|null>(null),[tab,setTab]=useState<'training'|'nutrition'|'review'|'timeline'>('review'),[error,setError]=useState(''),[working,setWorking]=useState(false),[status,setStatus]=useState('');
  const [session,setSession]=useState<S>(blankS()),[showSession,setShowSession]=useState(false),[currentSession,setCurrentSession]=useState(''),[exercise,setExercise]=useState<E>(blankE('')),[showExercise,setShowExercise]=useState(false);
  const [day,setDay]=useState<N>(blankN()),[targets,setTargets]=useState<T>(zeroT),[phase,setPhase]=useState<P>(blankP()),[showPhase,setShowPhase]=useState(false),[selectedExercise,setSelectedExercise]=useState('');
  const reload=async()=>{const x=await call('GET','/api/prep');setData({sessions:x.sessions||[],sets:x.sets||[],days:x.days||[],phases:x.phases||[],targets:x.targets||zeroT});setTargets(x.targets||zeroT);setStatus('Saved securely in D1')};
- useEffect(()=>{reload().catch(e=>setError(String(e)))},[]);
+ useEffect(()=>{
+  reload().catch(e=>setError(String(e)));
+  Promise.all([call('GET','/api/state'),call('GET','/api/photos'),call('GET','/api/measurements')]).then(([state,photos,measurements])=>{
+    const latest=[...(state.checkins||[])].sort((a:any,b:any)=>b.date.localeCompare(a.date))[0];
+    const measured=[...(measurements.measurements||[])].sort((a:any,b:any)=>b.date.localeCompare(a.date))[0];
+    setContext({weight:latest?.weight||'',bf:latest?.bf||'',checkinDate:latest?.date||'',photos:(photos.photos||[]).length,measureDate:measured?.date||''});
+  }).catch(()=>{});
+},[]);
  const apply=async(kind:string,value:unknown,after?:()=>void)=>{
   setWorking(true);setError('');setStatus('Saving…');
   try{await call('POST','/api/prep',{kind,value});await reload();after?.()}catch(e){setError(String(e));setStatus('Save failed')}finally{setWorking(false)}
@@ -88,7 +96,7 @@ export default function Preparation(){
    </div>
    <div className="prep-columns"><section className="panel"><div className="panelhead"><h2>Training this week</h2><Dumbbell size={19}/></div>{weekSessions.length?weekSessions.map(s=><div key={s.id} className="entry"><div><strong>{fmt(s.date)} · {s.focus||'Training'}</strong><span>{sets.filter(e=>e.sessionId===s.id).length} exercises · {s.duration??'—'} min</span></div></div>):<div className="empty compact">No logged workouts yet.</div>}</section><section className="panel"><div className="panelhead"><h2>Average macro intake</h2><Flame size={19}/></div><MacroTrack name="Protein" value={averages.protein} target={targets.protein}/><MacroTrack name="Carbs" value={averages.carbs} target={targets.carbs}/><MacroTrack name="Fat" value={averages.fat} target={targets.fat}/></section></div>
    <section className="panel"><div className="panelhead"><h2>Training load trend</h2><select aria-label="Select exercise" className="trend-select" value={selectedExercise} onChange={e=>setSelectedExercise(e.target.value)}><option value="">Choose exercise</option>{focusedExerciseNames.map(n=><option key={n} value={n}>{n}</option>)}</select></div>{selectedExercise?<Trend values={progression} unit="lb"/>:<div className="empty compact">Choose a logged exercise to compare load across sessions. Load alone doesn't measure total training volume.</div>}</section>
-   <section className="panel"><div className="panelhead"><h2>Weekly review prompt</h2><Activity size={20}/></div><p className="muted">Use the existing <strong>Check-in</strong> page to record weight, body-fat estimate, recovery, cardio, posing and next-week adjustments. This page summarizes the underlying training and nutrition records; no duplicate check-in is required.</p></section>
+   <section className="panel"><div className="panelhead"><h2>Body composition & check-in</h2><Activity size={20}/></div><div className="prep-metrics"><div><small>LATEST CHECK-IN WEIGHT</small><strong>{context.weight?context.weight+" lb":"—"}</strong></div><div><small>BODY FAT ESTIMATE</small><strong>{context.bf?context.bf+"%":"—"}</strong></div><div><small>PROGRESS PHOTOS</small><strong>{context.photos}</strong></div></div><p className="muted tiny">Latest weekly check-in: {context.checkinDate?fmt(context.checkinDate):"Not recorded"} · Last body measurements: {context.measureDate?fmt(context.measureDate):"Not recorded"}. Training and nutrition are summarized above, while posing, cardio, and adjustments remain in your weekly check-in.</p><div className="prep-quick"><button className="button secondary" onClick={goToCheckin}>Open weekly check-in</button><button className="button secondary" onClick={goToPhysique}>Open physique tracking</button></div></section>
   </>}
   {data&&tab==='training'&&<>
    <section className="panel"><div className="panelhead"><h2>Workout sessions</h2><button className="button" onClick={()=>{setSession(blankS());setShowSession(!showSession)}}><Plus size={16}/> Add session</button></div>
