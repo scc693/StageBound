@@ -9,6 +9,7 @@ interface Env {
   PHOTOS: R2Bucket;
   BACKUPS: R2Bucket;
   HEVY_API_KEY?: string;
+  Hevy_API?: string;
   ACCESS_AUD: string;
   ACCESS_TEAM_DOMAIN: string;
 }
