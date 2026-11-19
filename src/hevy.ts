@@ -8,7 +8,8 @@ const safeError=(error:unknown)=>error instanceof Error?error.message.slice(0,16
 async function fetchPage(key:string,page:number):Promise<Page>{
  const endpoint=new URL('https://api.hevyapp.com/v1/workouts');
  endpoint.searchParams.set('page',String(page));endpoint.searchParams.set('pageSize','10');
- const reply=await fetch(endpoint.href,{method:'GET',headers:{'api-key':key,'Accept':'application/json'},redirect:'error',signal:AbortSignal.timeout(12000)});
+ const reply=await fetch(endpoint.href,{method:'GET',headers:{'api-key':key,'Accept':'application/json'},redirect:'manual',signal:AbortSignal.timeout(12000)});
+ if(reply.status>=300&&reply.status<400)throw Error('Unexpected Hevy redirect. Sync stopped without forwarding credentials.');
  if(reply.status===429)throw Error('Hevy rate limit reached. Try syncing later.');
  if(reply.status===401||reply.status===403)throw Error('Hevy API key was rejected. Update the Worker secret.');
  if(!reply.ok)throw Error('Hevy returned HTTP '+reply.status);
