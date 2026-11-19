@@ -1,3 +1,4 @@
+import {hevyRoutes,scheduledHevySync} from './hevy';
 import { prepRoutes } from './prep';
 import { backupRoutes, preservePhoto, scheduledBackup } from './backup';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -7,6 +8,7 @@ interface Env {
   DB: D1Database;
   PHOTOS: R2Bucket;
   BACKUPS: R2Bucket;
+  HEVY_API_KEY?: string;
   ACCESS_AUD: string;
   ACCESS_TEAM_DOMAIN: string;
 }
@@ -194,6 +196,10 @@ export default {
       }
       return json({error:'Method not allowed'},405);
     }
+    if(url.pathname.startsWith('/api/hevy')){
+      const reply=await hevyRoutes(request,env,owner);
+      if(reply)return reply;
+    }
     if(url.pathname.startsWith('/api/prep')){
       const answer=await prepRoutes(request,env,owner);
       if(answer)return answer;
@@ -216,6 +222,7 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if(!env.DB||!env.PHOTOS||!env.BACKUPS)throw Error('Backup services are not configured');
-    ctx.waitUntil(scheduledBackup(env));
+    if(_controller.cron==='17 */6 * * *') ctx.waitUntil(scheduledHevySync(env));
+    else ctx.waitUntil(scheduledBackup(env));
   }
 };
