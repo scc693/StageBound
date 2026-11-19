@@ -1,3 +1,4 @@
+import { prepRoutes } from './prep';
 import { backupRoutes, preservePhoto, scheduledBackup } from './backup';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
@@ -192,6 +193,10 @@ export default {
         return json({ok:true});
       }
       return json({error:'Method not allowed'},405);
+    }
+    if(url.pathname.startsWith('/api/prep')){
+      const answer=await prepRoutes(request,env,owner);
+      if(answer)return answer;
     }
     if(url.pathname.startsWith('/api/backups')){
       if(!env.BACKUPS)return json({error:'Backup storage is not configured'},503);
