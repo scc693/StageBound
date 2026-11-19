@@ -6,7 +6,7 @@ type C={date:string,weight:string,bf:string};
 const measures=['waist','chest','shoulders','armLeft','armRight','thighLeft','thighRight','hips','neck'] as const;
 const labels:Record<string,string>={waist:'Waist',chest:'Chest',shoulders:'Shoulders',armLeft:'Left arm',armRight:'Right arm',thighLeft:'Left thigh',thighRight:'Right thigh',hips:'Hips',neck:'Neck',weight:'Body weight',bf:'Body fat estimate'};
 const empty=():M=>({id:crypto.randomUUID(),date:new Date().toLocaleDateString('en-CA'),waist:null,chest:null,shoulders:null,armLeft:null,armRight:null,thighLeft:null,thighRight:null,hips:null,neck:null,notes:''});
-async function api(path:string,options?:RequestInit){const r=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});const j=await r.json();if(!r.ok)throw Error(j.error||'Request failed');return j}
+async function api(path:string,options?:RequestInit){const r=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});const j:any=await r.json();if(!r.ok)throw Error(j.error||'Request failed');return j}
 const fmt=(s:string)=>s?new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'Unknown';
 function Chart({points,unit,label}:{points:{date:string,value:number}[],unit:string,label:string}){
  const a=[...points].sort((x,y)=>x.date.localeCompare(y.date)).slice(-24);
