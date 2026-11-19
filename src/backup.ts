@@ -9,7 +9,7 @@ export interface BackupEnv {
   BACKUPS: R2Bucket;
 }
 type Row = Record<string, string | number | null>;
-const tables = ['checkins','competitions','tasks','preferences','measurements','progress_photos','training_sessions','exercise_sets','nutrition_days','prep_plan','nutrition_targets'] as const;
+const tables = ['checkins','competitions','tasks','preferences','measurements','progress_photos','training_sessions','exercise_sets','nutrition_days','prep_plan','nutrition_targets','hevy_connections','hevy_workouts'] as const;
 type Table = typeof tables[number];
 type Records = Record<Table,Row[]>;
 interface Snapshot { version:number; createdAt:string; owner:string; records:Records; }
@@ -155,7 +155,7 @@ export async function exportRecords(env:BackupEnv,owner:string){
  return {version:1,exportedAt:new Date().toISOString(),records:await recordsForOwner(env.DB,owner)};
 }
 export async function scheduledBackup(env:BackupEnv){
- const query='SELECT owner FROM checkins UNION SELECT owner FROM competitions UNION SELECT owner FROM tasks UNION SELECT owner FROM preferences UNION SELECT owner FROM measurements UNION SELECT owner FROM progress_photos UNION SELECT owner FROM training_sessions UNION SELECT owner FROM exercise_sets UNION SELECT owner FROM nutrition_days UNION SELECT owner FROM prep_plan UNION SELECT owner FROM nutrition_targets';
+ const query='SELECT owner FROM checkins UNION SELECT owner FROM competitions UNION SELECT owner FROM tasks UNION SELECT owner FROM preferences UNION SELECT owner FROM measurements UNION SELECT owner FROM progress_photos UNION SELECT owner FROM training_sessions UNION SELECT owner FROM exercise_sets UNION SELECT owner FROM nutrition_days UNION SELECT owner FROM prep_plan UNION SELECT owner FROM nutrition_targets UNION SELECT owner FROM hevy_connections UNION SELECT owner FROM hevy_workouts';
  const results=await env.DB.prepare(query).all<{owner:string}>();
  const failures:string[]=[];
  for(const item of results.results){
